@@ -6,10 +6,12 @@ on:
       - main
       - master
     paths:
+      - '.github/workflows/cupertino.yml'
       - 'pkgs/cupertino_http/**'
       - 'pkgs/http_client_conformance_tests/**'
   pull_request:
     paths:
+      - '.github/workflows/cupertino.yml'
       - 'pkgs/cupertino_http/**'
       - 'pkgs/http_client_conformance_tests/**'
   schedule:
@@ -19,46 +21,67 @@ env:
   PUB_ENVIRONMENT: bot.github
 
 jobs:
-  analyze:
-    name: Lint and static analysis
-    runs-on: ubuntu-latest
+  macos:
+    name: "macOS: Format & Analyze & Test"
+    runs-on: macos-latest
     defaults:
       run:
         working-directory: pkgs/cupertino_http
+    strategy:
+      matrix:
+        # Test on the minimum supported flutter version and the latest
+        # version.
+        flutter-version: ["3.24.0", "any"]
+        # It would be nice to test on older versions of macOS but macOS 13 is
+        # the oldest supported by GitHub.
+        os: [macos-13, macos-latest]
     steps:
-      - uses: actions/checkout@v3
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: subosito/flutter-action@44ac965b96f18d999802d4b807e3256d5a3f9fa1
         with:
-          # TODO: Change to 'stable' when a release version of flutter
-          # pins version 1.21.1 or later of 'package:test'
-          channel: 'master'
+          flutter-version: ${{ matrix.flutter-version }}
+          channel: 'stable'
       - id: install
         name: Install dependencies
         run: flutter pub get
       - name: Check formatting
-        run: flutter format --output=none --set-exit-if-changed .
+        run: dart format --output=none --set-exit-if-changed .
         if: always() && steps.install.outcome == 'success'
       - name: Analyze code
         run: flutter analyze --fatal-infos
         if: always() && steps.install.outcome == 'success'
-
-  test:
-    # Test package:cupertino_http use flutter integration tests.
-    needs: analyze
-    name: "Build and test"
+      - name: Run tests
+        run: |
+          cd example
+          flutter pub get
+          flutter test -d macos integration_test/main.dart --test-randomize-ordering-seed=random  
+  ios:
+    name: "iOS: Test"
     runs-on: macos-latest
     defaults:
       run:
-        working-directory: pkgs/cupertino_http/example
+        working-directory: pkgs/cupertino_http
+    strategy:
+      fail-fast: false
+      matrix:
+        # Test on the minimum supported flutter version and the latest
+        # version.
+        flutter-version: ["3.24.0", "any"]
     steps:
-      - uses: actions/checkout@v3
-      - uses: futureware-tech/simulator-action@v1
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: subosito/flutter-action@44ac965b96f18d999802d4b807e3256d5a3f9fa1
         with:
-          model: 'iPhone 8'
-      - uses: subosito/flutter-action@v2
+          flutter-version: ${{ matrix.flutter-version }}
+          channel: 'stable'
+      - id: install
+        name: Install dependencies
+        run: flutter pub get
+      - uses: futureware-tech/simulator-action@dab10d813144ef59b48d401cd95da151222ef8cd
         with:
-          # TODO: Change to 'stable' when a release version of flutter
-          # pins version 1.21.1 or later of 'package:test'
-          channel: 'master'
+          os: iOS
+          os_version: '>=13.0'
       - name: Run tests
-        run: flutter test integration_test/
+        run: |
+          cd example
+          flutter pub get
+          flutter test integration_test/main.dart --test-randomize-ordering-seed=random

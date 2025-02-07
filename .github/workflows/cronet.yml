@@ -6,10 +6,12 @@ on:
       - main
       - master
     paths:
+      - '.github/workflows/cronet.yml'
       - 'pkgs/cronet_http/**'
       - 'pkgs/http_client_conformance_tests/**'
   pull_request:
     paths:
+      - '.github/workflows/cronet.yml'
       - 'pkgs/cronet_http/**'
       - 'pkgs/http_client_conformance_tests/**'
   schedule:
@@ -19,50 +21,48 @@ env:
   PUB_ENVIRONMENT: bot.github
 
 jobs:
-  analyze:
-    name: Lint and static analysis
+  verify:
+    name: Format & Analyze & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        cronetHttpNoPlay: ['false', 'true']
     defaults:
       run:
         working-directory: pkgs/cronet_http
     steps:
-      - uses: actions/checkout@v3
-      - uses: subosito/flutter-action@v2
+      - name: Delete unnecessary tools 🔧
+        uses: jlumbroso/free-disk-space@v1.3.1
         with:
-          # TODO: Change to 'stable' when a release version of flutter
-          # pins version 1.21.1 or later of 'package:test'
-          channel: 'master'
+          android: false # Don't remove Android tools
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-java@8df1039502a15bceb9433410b1a100fbe190c53b
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      - uses: subosito/flutter-action@44ac965b96f18d999802d4b807e3256d5a3f9fa1
+        with:
+          channel: 'stable'
       - id: install
         name: Install dependencies
         run: flutter pub get
       - name: Check formatting
-        run: flutter format --output=none --set-exit-if-changed .
         if: always() && steps.install.outcome == 'success'
+        run: dart format --output=none --set-exit-if-changed .
       - name: Analyze code
-        run: flutter analyze --fatal-infos
         if: always() && steps.install.outcome == 'success'
-
-  test:
-    # Test package:cupertino_http use flutter integration tests.
-    needs: analyze
-    name: "Build and test"
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-java@v3
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-      - uses: subosito/flutter-action@v2
-        with:
-          # TODO: Change to 'stable' when a release version of flutter
-          # pins version 1.21.1 or later of 'package:test'
-          channel: 'master'
+        run: flutter analyze --fatal-infos
       - name: Run tests
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d
+        if: always() && steps.install.outcome == 'success'
         with:
-          api-level: 28
-          target: playstore
+          # api-level/minSdkVersion should be help in sync in:
+          # - .github/workflows/cronet.yml
+          # - pkgs/cronet_http/android/build.gradle
+          # - pkgs/cronet_http/example/android/app/build.gradle
+          api-level: 21
           arch: x86_64
-          profile: pixel
-          script: cd ./pkgs/cronet_http/example && flutter test --timeout=1200s integration_test/
+          target: ${{ matrix.cronetHttpNoPlay == 'true' && 'default' || 'google_apis' }}
+          script: cd pkgs/cronet_http/example && flutter test --dart-define=cronetHttpNoPlay=${{ matrix.cronetHttpNoPlay }} --timeout=1200s integration_test/

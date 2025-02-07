@@ -3,6 +3,10 @@
 // BSD-style license that can be found in the LICENSE file.
 
 @TestOn('browser')
+library;
+
+import 'dart:async';
+
 import 'package:http/browser_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
@@ -14,8 +18,8 @@ void main() {
     test("works when it's set", () async {
       var request = http.StreamedRequest('POST', echoUrl)
         ..contentLength = 10
-        ..sink.add([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        ..sink.close();
+        ..sink.add([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      unawaited(request.sink.close());
 
       final response = await BrowserClient().send(request);
 
@@ -26,7 +30,7 @@ void main() {
     test("works when it's not set", () async {
       var request = http.StreamedRequest('POST', echoUrl);
       request.sink.add([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-      request.sink.close();
+      unawaited(request.sink.close());
 
       final response = await BrowserClient().send(request);
       expect(await response.stream.toBytes(),

@@ -7,8 +7,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 /// A stream of chunks of bytes representing a single piece of data.
-class ByteStream extends StreamView<List<int>> {
-  const ByteStream(Stream<List<int>> stream) : super(stream);
+final class ByteStream extends StreamView<List<int>> {
+  const ByteStream(super.stream);
 
   /// Returns a single-subscription byte stream that will emit the given bytes
   /// in a single chunk.

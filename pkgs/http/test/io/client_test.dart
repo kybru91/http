@@ -3,6 +3,9 @@
 // BSD-style license that can be found in the LICENSE file.
 
 @TestOn('vm')
+library;
+
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -40,9 +43,8 @@ void main() {
       ..headers[HttpHeaders.userAgentHeader] = 'Dart';
 
     var responseFuture = client.send(request);
-    request
-      ..sink.add('{"hello": "world"}'.codeUnits)
-      ..sink.close();
+    request.sink.add('{"hello": "world"}'.codeUnits);
+    unawaited(request.sink.close());
 
     var response = await responseFuture;
 
@@ -79,9 +81,8 @@ void main() {
       ..headers[HttpHeaders.userAgentHeader] = 'Dart';
 
     var responseFuture = client.send(request);
-    request
-      ..sink.add('{"hello": "world"}'.codeUnits)
-      ..sink.close();
+    request.sink.add('{"hello": "world"}'.codeUnits);
+    unawaited(request.sink.close());
 
     var response = await responseFuture;
 
@@ -116,7 +117,15 @@ void main() {
     request.headers[HttpHeaders.contentTypeHeader] =
         'application/json; charset=utf-8';
 
-    expect(client.send(request), throwsA(isA<SocketException>()));
+    expect(
+        client.send(request),
+        throwsA(allOf(
+            isA<http.ClientException>().having((e) => e.uri, 'uri', url),
+            isA<SocketException>().having(
+                (e) => e.toString(),
+                'SocketException.toString',
+                matches('ClientException with SocketException.*,'
+                    ' uri=http://http.invalid')))));
 
     request.sink.add('{"hello": "world"}'.codeUnits);
     request.sink.close();
@@ -149,12 +158,12 @@ void main() {
   });
 
   test('runWithClient', () {
-    final client = http.runWithClient(() => http.Client(), () => TestClient());
+    final client = http.runWithClient(http.Client.new, TestClient.new);
     expect(client, isA<TestClient>());
   });
 
   test('runWithClient Client() return', () {
-    final client = http.runWithClient(() => http.Client(), () => http.Client());
+    final client = http.runWithClient(http.Client.new, http.Client.new);
     expect(client, isA<http_io.IOClient>());
   });
 
@@ -162,10 +171,9 @@ void main() {
     late final http.Client client;
     late final http.Client nestedClient;
     http.runWithClient(() {
-      http.runWithClient(
-          () => nestedClient = http.Client(), () => TestClient2());
+      http.runWithClient(() => nestedClient = http.Client(), TestClient2.new);
       client = http.Client();
-    }, () => TestClient());
+    }, TestClient.new);
     expect(client, isA<TestClient>());
     expect(nestedClient, isA<TestClient2>());
   });
@@ -174,7 +182,7 @@ void main() {
     // Verify that calling the http.Client() factory inside nested Zones does
     // not provoke an infinite recursion.
     http.runWithClient(() {
-      http.runWithClient(() => http.Client(), () => http.Client());
-    }, () => http.Client());
+      http.runWithClient(http.Client.new, http.Client.new);
+    }, http.Client.new);
   });
 }

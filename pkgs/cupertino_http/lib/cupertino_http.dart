@@ -5,6 +5,12 @@
 /// Provides access to the
 /// [Foundation URL Loading System](https://developer.apple.com/documentation/foundation/url_loading_system).
 ///
+/// **NOTE**: If sandboxed with the App Sandbox (the default Flutter
+/// configuration on macOS) then the
+/// [`com.apple.security.network.client`](https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_security_network_client)
+/// entitlement is required to use `package:cupertino_http`. See
+/// [Entitlements and the App Sandbox](https://flutter.dev/to/macos-entitlements).
+///
 /// # CupertinoClient
 ///
 /// The most convenient way to `package:cupertino_http` it is through
@@ -38,17 +44,22 @@
 ///
 /// ```
 /// void main() {
-///   var clientFactory = Client.new; // The default Client.
+///   final Client httpClient;
 ///   if (Platform.isIOS || Platform.isMacOS) {
-///     clientFactory = CupertinoClient.defaultSessionConfiguration.call;
+///     final config = URLSessionConfiguration.ephemeralSessionConfiguration()
+///       ..cache = URLCache.withCapacity(memoryCapacity: 2 * 1024 * 1024)
+///       ..httpAdditionalHeaders = {'User-Agent': 'Book Agent'};
+///     httpClient = CupertinoClient.fromSessionConfiguration(config);
+///   } else {
+///     httpClient = IOClient(HttpClient()..userAgent = 'Book Agent');
 ///   }
-///   runWithClient(() => runApp(const MyFlutterApp()), clientFactory);
-/// }
-/// ```
 ///
-/// After the above setup, calling [Client] methods or any of the
-/// `package:http` convenient functions (e.g. [get]) will result in
-/// [CupertinoClient] being used on macOS and iOS.
+///   runApp(Provider<Client>(
+///       create: (_) => httpClient,
+///       child: const BookSearchApp(),
+///       dispose: (_, client) => client.close()));
+///  }
+/// ```
 ///
 /// # NSURLSession API
 ///
@@ -74,9 +85,12 @@
 ///   task.resume();
 /// }
 /// ```
+library;
+
 import 'package:http/http.dart';
 
 import 'src/cupertino_client.dart';
 
 export 'src/cupertino_api.dart';
-export 'src/cupertino_client.dart';
+export 'src/cupertino_client.dart' show CupertinoClient;
+export 'src/cupertino_web_socket.dart';

@@ -69,7 +69,16 @@ class Request extends BaseRequest {
   ///
   /// This is converted to and from [body] using [encoding].
   ///
-  /// This list should only be set, not be modified in place.
+  /// This list should only be set, not modified in place.
+  ///
+  /// Unlike [body], setting [bodyBytes] does not implicitly set a
+  /// `Content-Type` header.
+  ///
+  /// ```dart
+  /// final request = Request('GET', Uri.https('example.com', 'whatsit/create'))
+  ///   ..bodyBytes = utf8.encode(jsonEncode({}))
+  ///   ..headers['content-type'] = 'application/json';
+  /// ```
   Uint8List get bodyBytes => _bodyBytes;
   Uint8List _bodyBytes;
 
@@ -86,6 +95,9 @@ class Request extends BaseRequest {
   /// header, one will be added with the type `text/plain`. Then the `charset`
   /// parameter of the `Content-Type` header (whether new or pre-existing) will
   /// be set to [encoding] if it wasn't already set.
+  ///
+  /// To set the body of the request, without setting the `Content-Type` header,
+  /// use [bodyBytes].
   String get body => encoding.decode(bodyBytes);
 
   set body(String value) {
@@ -137,10 +149,9 @@ class Request extends BaseRequest {
     body = mapToQuery(fields, encoding: encoding);
   }
 
-  Request(String method, Uri url)
+  Request(super.method, super.url)
       : _defaultEncoding = utf8,
-        _bodyBytes = Uint8List(0),
-        super(method, url);
+        _bodyBytes = Uint8List(0);
 
   /// Freezes all mutable fields and returns a single-subscription [ByteStream]
   /// containing the request body.

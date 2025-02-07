@@ -2,24 +2,43 @@
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
-/// A [Client] implementation based on the
-/// [Foundation URL Loading System](https://developer.apple.com/documentation/foundation/url_loading_system).
-
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:async/async.dart';
 import 'package:http/http.dart';
+import 'package:http_profile/http_profile.dart';
+import 'package:objective_c/objective_c.dart';
 
 import 'cupertino_api.dart';
+
+final _digitRegex = RegExp(r'^\d+$');
+
+/// This class can be removed when `package:http` v2 is released.
+class _StreamedResponseWithUrl extends StreamedResponse
+    implements BaseResponseWithUrl {
+  @override
+  final Uri url;
+
+  _StreamedResponseWithUrl(super.stream, super.statusCode,
+      {required this.url,
+      super.contentLength,
+      super.request,
+      super.headers,
+      super.isRedirect,
+      super.reasonPhrase});
+}
 
 class _TaskTracker {
   final responseCompleter = Completer<URLResponse>();
   final BaseRequest request;
   final responseController = StreamController<Uint8List>();
+  final HttpClientRequestProfile? profile;
   int numRedirects = 0;
+  Uri? lastUrl; // The last URL redirected to.
 
-  _TaskTracker(this.request);
+  _TaskTracker(this.request, this.profile);
 
   void close() {
     responseController.close();
@@ -54,7 +73,7 @@ class CupertinoClient extends BaseClient {
 
   URLSession? _urlSession;
 
-  CupertinoClient._(URLSession urlSession) : _urlSession = urlSession;
+  CupertinoClient._(this._urlSession);
 
   String? _findReasonPhrase(int statusCode) {
     switch (statusCode) {
@@ -146,28 +165,42 @@ class CupertinoClient extends BaseClient {
   static _TaskTracker _tracker(URLSessionTask task) => _tasks[task]!;
 
   static void _onComplete(
-      URLSession session, URLSessionTask task, Error? error) {
+      URLSession session, URLSessionTask task, NSError? error) {
     final taskTracker = _tracker(task);
-
     if (error != null) {
       final exception = ClientException(
-          error.localizedDescription ?? 'Unknown', taskTracker.request.url);
+          error.localizedDescription.toString(), taskTracker.request.url);
+      if (taskTracker.profile != null &&
+          taskTracker.profile!.requestData.endTime == null) {
+        // Error occurred during the request.
+        taskTracker.profile!.requestData.closeWithError(exception.toString());
+      } else {
+        // Error occurred during the response.
+        taskTracker.profile?.responseData.closeWithError(exception.toString());
+      }
       if (taskTracker.responseCompleter.isCompleted) {
         taskTracker.responseController.addError(exception);
       } else {
         taskTracker.responseCompleter.completeError(exception);
       }
-    } else if (!taskTracker.responseCompleter.isCompleted) {
-      taskTracker.responseCompleter.completeError(
-          StateError('task completed without an error or response'));
+    } else {
+      assert(taskTracker.profile == null ||
+          taskTracker.profile!.requestData.endTime != null);
+
+      taskTracker.profile?.responseData.close();
+      if (!taskTracker.responseCompleter.isCompleted) {
+        taskTracker.responseCompleter.completeError(
+            StateError('task completed without an error or response'));
+      }
     }
     taskTracker.close();
     _tasks.remove(task);
   }
 
-  static void _onData(URLSession session, URLSessionTask task, Data data) {
+  static void _onData(URLSession session, URLSessionTask task, NSData data) {
     final taskTracker = _tracker(task);
-    taskTracker.responseController.add(data.bytes);
+    taskTracker.responseController.add(data.toList());
+    taskTracker.profile?.responseData.bodySink.add(data.toList());
   }
 
   static URLRequest? _onRedirect(URLSession session, URLSessionTask task,
@@ -176,16 +209,23 @@ class CupertinoClient extends BaseClient {
     ++taskTracker.numRedirects;
     if (taskTracker.request.followRedirects &&
         taskTracker.numRedirects <= taskTracker.request.maxRedirects) {
+      taskTracker.profile?.responseData.addRedirect(HttpProfileRedirectData(
+          statusCode: response.statusCode,
+          method: request.httpMethod,
+          location: request.url!.toString()));
+      taskTracker.lastUrl = request.url;
       return request;
     }
     return null;
   }
 
-  static URLSessionResponseDisposition _onResponse(
+  static NSURLSessionResponseDisposition _onResponse(
       URLSession session, URLSessionTask task, URLResponse response) {
     final taskTracker = _tracker(task);
     taskTracker.responseCompleter.complete(response);
-    return URLSessionResponseDisposition.urlSessionResponseAllow;
+    unawaited(taskTracker.profile?.requestData.close());
+
+    return NSURLSessionResponseDisposition.NSURLSessionResponseAllow;
   }
 
   /// A [Client] with the default configuration.
@@ -207,12 +247,33 @@ class CupertinoClient extends BaseClient {
 
   @override
   void close() {
+    _urlSession?.finishTasksAndInvalidate();
     _urlSession = null;
   }
 
+  /// Returns true if [stream] includes at least one list with an element.
+  ///
+  /// Since [_hasData] consumes [stream], returns a new stream containing the
+  /// equivalent data.
+  static Future<(bool, Stream<List<int>>)> _hasData(
+      Stream<List<int>> stream) async {
+    final queue = StreamQueue(stream);
+    while (await queue.hasNext && (await queue.peek).isEmpty) {
+      await queue.next;
+    }
+
+    return (await queue.hasNext, queue.rest);
+  }
+
+  HttpClientRequestProfile? _createProfile(BaseRequest request) =>
+      HttpClientRequestProfile.profile(
+          requestStartTime: DateTime.now(),
+          requestMethod: request.method,
+          requestUri: request.url.toString());
+
   @override
   Future<StreamedResponse> send(BaseRequest request) async {
-    // The expected sucess case flow (without redirects) is:
+    // The expected success case flow (without redirects) is:
     // 1. send is called by BaseClient
     // 2. send starts the request with UrlSession.dataTaskWithRequest and waits
     //    on a Completer
@@ -232,41 +293,119 @@ class CupertinoClient extends BaseClient {
 
     final stream = request.finalize();
 
-    final bytes = await stream.toBytes();
-    final d = Data.fromUint8List(bytes);
+    final profile = _createProfile(request);
+    profile?.connectionInfo = {
+      'package': 'package:cupertino_http',
+      'client': 'CupertinoClient',
+      'configuration': _urlSession!.configuration.toString(),
+    };
+    profile?.requestData
+      ?..contentLength = request.contentLength
+      ..followRedirects = request.followRedirects
+      ..headersCommaValues = request.headers
+      ..maxRedirects = request.maxRedirects;
 
     final urlRequest = MutableURLRequest.fromUrl(request.url)
-      ..httpMethod = request.method
-      ..httpBody = d;
+      ..httpMethod = request.method;
+
+    if (request.contentLength != null) {
+      profile?.requestData.headersListValues = {
+        'Content-Length': ['${request.contentLength}'],
+        ...profile.requestData.headers!
+      };
+      urlRequest.setValueForHttpHeaderField(
+          'Content-Length', '${request.contentLength}');
+    }
+
+    if (request is Request) {
+      // Optimize the (typical) `Request` case since assigning to
+      // `httpBodyStream` requires a lot of expensive setup and data passing.
+      urlRequest.httpBody = request.bodyBytes.toNSData();
+      profile?.requestData.bodySink.add(request.bodyBytes);
+    } else if (await _hasData(stream) case (true, final s)) {
+      // If the request is supposed to be bodyless (e.g. GET requests)
+      // then setting `httpBodyStream` will cause the request to fail -
+      // even if the stream is empty.
+      if (profile == null) {
+        urlRequest.httpBodyStream = s.toNSInputStream();
+      } else {
+        final splitter = StreamSplitter(s);
+        urlRequest.httpBodyStream = splitter.split().toNSInputStream();
+        unawaited(profile.requestData.bodySink.addStream(splitter.split()));
+      }
+    }
 
     // This will preserve Apple default headers - is that what we want?
     request.headers.forEach(urlRequest.setValueForHttpHeaderField);
-
     final task = urlSession.dataTaskWithRequest(urlRequest);
-    final taskTracker = _TaskTracker(request);
+    final taskTracker = _TaskTracker(request, profile);
     _tasks[task] = taskTracker;
     task.resume();
 
     final maxRedirects = request.followRedirects ? request.maxRedirects : 0;
 
-    final result = await taskTracker.responseCompleter.future;
+    late URLResponse result;
+    result = await taskTracker.responseCompleter.future;
+
     final response = result as HTTPURLResponse;
 
     if (request.followRedirects && taskTracker.numRedirects > maxRedirects) {
       throw ClientException('Redirect limit exceeded', request.url);
     }
 
-    return StreamedResponse(
+    final responseHeaders = response.allHeaderFields
+        .map((key, value) => MapEntry(key.toLowerCase(), value));
+
+    if (responseHeaders['content-length'] case final contentLengthHeader?
+        when !_digitRegex.hasMatch(contentLengthHeader)) {
+      throw ClientException(
+        'Invalid content-length header [$contentLengthHeader].',
+        request.url,
+      );
+    }
+
+    final contentLength = response.expectedContentLength == -1
+        ? null
+        : response.expectedContentLength;
+    final isRedirect = !request.followRedirects && taskTracker.numRedirects > 0;
+    profile?.responseData
+      ?..contentLength = contentLength
+      ..headersCommaValues = responseHeaders
+      ..isRedirect = isRedirect
+      ..reasonPhrase = _findReasonPhrase(response.statusCode)
+      ..startTime = DateTime.now()
+      ..statusCode = response.statusCode;
+
+    return _StreamedResponseWithUrl(
       taskTracker.responseController.stream,
       response.statusCode,
-      contentLength: response.expectedContentLength == -1
-          ? null
-          : response.expectedContentLength,
+      url: taskTracker.lastUrl ?? request.url,
+      contentLength: contentLength,
       reasonPhrase: _findReasonPhrase(response.statusCode),
       request: request,
-      isRedirect: !request.followRedirects && taskTracker.numRedirects > 0,
-      headers: response.allHeaderFields
-          .map((key, value) => MapEntry(key.toLowerCase(), value)),
+      isRedirect: isRedirect,
+      headers: responseHeaders,
     );
+  }
+}
+
+/// A test-only class that makes the [HttpClientRequestProfile] data available.
+class CupertinoClientWithProfile extends CupertinoClient {
+  HttpClientRequestProfile? profile;
+
+  @override
+  HttpClientRequestProfile? _createProfile(BaseRequest request) =>
+      profile = super._createProfile(request);
+
+  CupertinoClientWithProfile._(super._urlSession) : super._();
+
+  factory CupertinoClientWithProfile.defaultSessionConfiguration() {
+    final config = URLSessionConfiguration.defaultSessionConfiguration();
+    final session = URLSession.sessionWithConfiguration(config,
+        onComplete: CupertinoClient._onComplete,
+        onData: CupertinoClient._onData,
+        onRedirect: CupertinoClient._onRedirect,
+        onResponse: CupertinoClient._onResponse);
+    return CupertinoClientWithProfile._(session);
   }
 }

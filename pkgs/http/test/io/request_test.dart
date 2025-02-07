@@ -3,6 +3,7 @@
 // BSD-style license that can be found in the LICENSE file.
 
 @TestOn('vm')
+library;
 
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
@@ -45,15 +46,22 @@ void main() {
     final response = await request.send();
 
     expect(response.statusCode, equals(302));
+    expect(
+        response,
+        isA<http.BaseResponseWithUrl>()
+            .having((r) => r.url, 'url', serverUrl.resolve('/redirect')));
   });
 
   test('with redirects', () async {
     final request = http.Request('GET', serverUrl.resolve('/redirect'));
     final response = await request.send();
-
     expect(response.statusCode, equals(200));
     final bytesString = await response.stream.bytesToString();
     expect(bytesString, parse(containsPair('path', '/')));
+    expect(
+        response,
+        isA<http.BaseResponseWithUrl>()
+            .having((r) => r.url, 'url', serverUrl.resolve('/')));
   });
 
   test('exceeding max redirects', () async {

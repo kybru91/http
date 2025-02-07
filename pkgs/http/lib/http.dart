@@ -3,6 +3,8 @@
 // BSD-style license that can be found in the LICENSE file.
 
 /// A composable, [Future]-based library for making HTTP requests.
+library;
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -14,7 +16,8 @@ import 'src/streamed_request.dart';
 
 export 'src/base_client.dart';
 export 'src/base_request.dart';
-export 'src/base_response.dart';
+export 'src/base_response.dart'
+    show BaseResponse, BaseResponseWithUrl, HeadersWithSplitValues;
 export 'src/byte_stream.dart';
 export 'src/client.dart' hide zoneClient;
 export 'src/exception.dart';
@@ -23,7 +26,7 @@ export 'src/multipart_request.dart';
 export 'src/request.dart';
 export 'src/response.dart';
 export 'src/streamed_request.dart';
-export 'src/streamed_response.dart';
+export 'src/streamed_response.dart' show StreamedResponse;
 
 /// Sends an HTTP HEAD request with the given headers to the given URL.
 ///
@@ -47,15 +50,15 @@ Future<Response> get(Uri url, {Map<String, String>? headers}) =>
 
 /// Sends an HTTP POST request with the given headers and body to the given URL.
 ///
-/// [body] sets the body of the request. It can be a [String], a [List<int>] or
-/// a [Map<String, String>]. If it's a String, it's encoded using [encoding] and
-/// used as the body of the request. The content-type of the request will
+/// [body] sets the body of the request. It can be a `String`, a `List<int>` or
+/// a `Map<String, String>`. If it's a `String`, it's encoded using [encoding]
+/// and used as the body of the request. The content-type of the request will
 /// default to "text/plain".
 ///
-/// If [body] is a List, it's used as a list of bytes for the body of the
+/// If [body] is a `List`, it's used as a list of bytes for the body of the
 /// request.
 ///
-/// If [body] is a Map, it's encoded as form fields using [encoding]. The
+/// If [body] is a `Map`, it's encoded as form fields using [encoding]. The
 /// content-type of the request will be set to
 /// `"application/x-www-form-urlencoded"`; this cannot be overridden.
 ///
@@ -70,15 +73,15 @@ Future<Response> post(Uri url,
 
 /// Sends an HTTP PUT request with the given headers and body to the given URL.
 ///
-/// [body] sets the body of the request. It can be a [String], a [List<int>] or
-/// a [Map<String, String>]. If it's a String, it's encoded using [encoding] and
-/// used as the body of the request. The content-type of the request will
+/// [body] sets the body of the request. It can be a `String`, a `List<int>` or
+/// a `Map<String, String>`. If it's a `String`, it's encoded using [encoding]
+/// and used as the body of the request. The content-type of the request will
 /// default to "text/plain".
 ///
-/// If [body] is a List, it's used as a list of bytes for the body of the
+/// If [body] is a `List`, it's used as a list of bytes for the body of the
 /// request.
 ///
-/// If [body] is a Map, it's encoded as form fields using [encoding]. The
+/// If [body] is a `Map`, it's encoded as form fields using [encoding]. The
 /// content-type of the request will be set to
 /// `"application/x-www-form-urlencoded"`; this cannot be overridden.
 ///
@@ -94,15 +97,15 @@ Future<Response> put(Uri url,
 /// Sends an HTTP PATCH request with the given headers and body to the given
 /// URL.
 ///
-/// [body] sets the body of the request. It can be a [String], a [List<int>] or
-/// a [Map<String, String>]. If it's a String, it's encoded using [encoding] and
-/// used as the body of the request. The content-type of the request will
+/// [body] sets the body of the request. It can be a `String`, a `List<int>` or
+/// a `Map<String, String>`. If it's a `String`, it's encoded using [encoding]
+/// and used as the body of the request. The content-type of the request will
 /// default to "text/plain".
 ///
-/// If [body] is a List, it's used as a list of bytes for the body of the
+/// If [body] is a `List`, it's used as a list of bytes for the body of the
 /// request.
 ///
-/// If [body] is a Map, it's encoded as form fields using [encoding]. The
+/// If [body] is a `Map`, it's encoded as form fields using [encoding]. The
 /// content-type of the request will be set to
 /// `"application/x-www-form-urlencoded"`; this cannot be overridden.
 ///

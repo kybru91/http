@@ -6,25 +6,33 @@ import 'dart:io';
 
 import 'base_client.dart';
 import 'base_request.dart';
+import 'base_response.dart';
+import 'client.dart';
 import 'exception.dart';
 import 'io_streamed_response.dart';
 
 /// Create an [IOClient].
 ///
 /// Used from conditional imports, matches the definition in `client_stub.dart`.
-BaseClient createClient() => IOClient();
+BaseClient createClient() {
+  if (const bool.fromEnvironment('no_default_http_client')) {
+    throw StateError('no_default_http_client was defined but runWithClient '
+        'was not used to configure a Client implementation.');
+  }
+  return IOClient();
+}
 
 /// Exception thrown when the underlying [HttpClient] throws a
 /// [SocketException].
 ///
-/// Implemenents [SocketException] to avoid breaking existing users of
+/// Implements [SocketException] to avoid breaking existing users of
 /// [IOClient] that may catch that exception.
 class _ClientSocketException extends ClientException
     implements SocketException {
   final SocketException cause;
-  _ClientSocketException(SocketException e, Uri url)
+  _ClientSocketException(SocketException e, Uri uri)
       : cause = e,
-        super(e.message, url);
+        super(e.message, uri);
 
   @override
   InternetAddress? get address => cause.address;
@@ -34,13 +42,65 @@ class _ClientSocketException extends ClientException
 
   @override
   int? get port => cause.port;
+
+  @override
+  String toString() => 'ClientException with $cause, uri=$uri';
 }
 
-/// A `dart:io`-based HTTP client.
+class _IOStreamedResponseV2 extends IOStreamedResponse
+    implements BaseResponseWithUrl {
+  @override
+  final Uri url;
+
+  _IOStreamedResponseV2(super.stream, super.statusCode,
+      {required this.url,
+      super.contentLength,
+      super.request,
+      super.headers,
+      super.isRedirect,
+      super.persistentConnection,
+      super.reasonPhrase,
+      super.inner});
+}
+
+/// A `dart:io`-based HTTP [Client].
+///
+/// If there is a socket-level failure when communicating with the server
+/// (for example, if the server could not be reached), [IOClient] will emit a
+/// [ClientException] that also implements [SocketException]. This allows
+/// callers to get more detailed exception information for socket-level
+/// failures, if desired.
+///
+/// For example:
+/// ```dart
+/// final client = http.Client();
+/// late String data;
+/// try {
+///   data = await client.read(Uri.https('example.com', ''));
+/// } on SocketException catch (e) {
+///   // Exception is transport-related, check `e.osError` for more details.
+/// } on http.ClientException catch (e) {
+///   // Exception is HTTP-related (e.g. the server returned a 404 status code).
+///   // If the handler for `SocketException` were removed then all exceptions
+///   // would be caught by this handler.
+/// }
+/// ```
 class IOClient extends BaseClient {
   /// The underlying `dart:io` HTTP client.
   HttpClient? _inner;
 
+  /// Create a new `dart:io`-based HTTP [Client].
+  ///
+  /// If [inner] is provided then it can be used to provide configuration
+  /// options for the client.
+  ///
+  /// For example:
+  /// ```dart
+  /// final httpClient = HttpClient()
+  ///    ..userAgent = 'Book Agent'
+  ///    ..idleTimeout = const Duration(seconds: 5);
+  /// final client = IOClient(httpClient);
+  /// ```
   IOClient([HttpClient? inner]) : _inner = inner ?? HttpClient();
 
   /// Sends an HTTP request and asynchronously returns the response.
@@ -67,10 +127,13 @@ class IOClient extends BaseClient {
 
       var headers = <String, String>{};
       response.headers.forEach((key, values) {
-        headers[key] = values.join(',');
+        // TODO: Remove trimRight() when
+        // https://github.com/dart-lang/sdk/issues/53005 is resolved and the
+        // package:http SDK constraint requires that version or later.
+        headers[key] = values.map((value) => value.trimRight()).join(',');
       });
 
-      return IOStreamedResponse(
+      return _IOStreamedResponseV2(
           response.handleError((Object error) {
             final httpException = error as HttpException;
             throw ClientException(httpException.message, httpException.uri);
@@ -81,6 +144,9 @@ class IOClient extends BaseClient {
           request: request,
           headers: headers,
           isRedirect: response.isRedirect,
+          url: response.redirects.isNotEmpty
+              ? response.redirects.last.location
+              : request.url,
           persistentConnection: response.persistentConnection,
           reasonPhrase: response.reasonPhrase,
           inner: response);

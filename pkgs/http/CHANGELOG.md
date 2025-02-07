@@ -1,7 +1,60 @@
-## 0.13.6-dev
+## 1.4.0-wip
+
+* Fixed default encoding for application/json without a charset
+  to use utf8 instead of latin1, ensuring proper JSON decoding.
+
+## 1.3.0-wip
+
+* Fixed unintended HTML tags in doc comments.
+* Switched `BrowserClient` to use Fetch API instead of `XMLHttpRequest`.
+
+## 1.2.2
+
+* Require package `web: '>=0.5.0 <2.0.0'`.
+
+## 1.2.1
+
+* Require Dart `^3.3`
+* Require `package:web` `^0.5.0`.
+
+## 1.2.0
+
+* Add `MockClient.pngResponse`, which makes it easier to fake image responses.
+* Added the ability to fetch the URL of the response through `BaseResponseWithUrl`.
+* Add the ability to get headers as a `Map<String, List<String>` to
+  `BaseResponse`.
+
+## 1.1.2
+
+* Allow `web: '>=0.3.0 <0.5.0'`.
+
+## 1.1.1
+
+* `BrowserClient` throws `ClientException` when the `'Content-Length'` header
+  is invalid.
+* `IOClient` trims trailing whitespace on header values.
+* Require Dart 3.2
+* Browser: support Wasm by using `package:web`.
+
+## 1.1.0
+
+* Add better error messages for `SocketException`s when using `IOClient`.
+* Make `StreamedRequest.sink` a `StreamSink`. This makes `request.sink.close()`
+  return a `Future` instead of `void`, but the returned future should _not_ be
+  awaited. The Future returned from `sink.close()` may only complete after the
+  request has been sent.
+
+## 1.0.0
+
+* Requires Dart 3.0 or later.
+* Add `base`, `final`, and `interface` modifiers to some classes.
+
+## 0.13.6
 
 * `BrowserClient` throws an exception if `send` is called after `close`.
-* No longer depends on package:path.
+* If `no_default_http_client=true` is set in the environment then disk usage
+  is reduced in some circumstances.
+* Require Dart 2.19
 
 ## 0.13.5
 

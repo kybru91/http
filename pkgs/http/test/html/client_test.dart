@@ -3,6 +3,10 @@
 // BSD-style license that can be found in the LICENSE file.
 
 @TestOn('browser')
+library;
+
+import 'dart:async';
+
 import 'package:http/browser_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
@@ -15,9 +19,8 @@ void main() {
     var request = http.StreamedRequest('POST', echoUrl);
 
     var responseFuture = client.send(request);
-    request.sink
-      ..add('{"hello": "world"}'.codeUnits)
-      ..close();
+    request.sink.add('{"hello": "world"}'.codeUnits);
+    unawaited(request.sink.close());
 
     var response = await responseFuture;
     var bytesString = await response.stream.bytesToString();
@@ -31,8 +34,7 @@ void main() {
     var url = Uri.http('http.invalid', '');
     var request = http.StreamedRequest('POST', url);
 
-    expect(
-        client.send(request), throwsClientException('XMLHttpRequest error.'));
+    expect(client.send(request), throwsClientException());
 
     request.sink.add('{"hello": "world"}'.codeUnits);
     request.sink.close();
